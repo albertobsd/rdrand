@@ -46,6 +46,9 @@ __FBSDID("$FreeBSD: releng/11.1/sys/dev/null/null.c 274366 2014-11-11 04:48:09Z 
 #define RETRY_COUNT 10
 #define RDRAND_MAX_BUFFER 1024*1024
 
+//static MALLOC_DECLARE(RDRAND_BUFFER);
+static MALLOC_DEFINE(RDRAND_BUFFER,"rdrand_buffer","Buffer for rdrand data");
+
 /* For use with destroy_dev(9). */
 static struct cdev *rdrand_dev;
 static d_read_t rdrand_read;
@@ -110,18 +113,35 @@ static int
 rdrand_read(struct cdev *dev __unused, struct uio *uio,int flags __unused)
 {
 	int len_ulong = 0;
-	//unsigned char buffer[RDRAND_MAX_BUFFER];
+	unsigned char *buffer = NULL;
 	u_long rdrandval;
 	ssize_t len;
-	//ssize_t offset;
+	ssize_t offset;
 	int error = 0;
-	len_ulong = sizeof(u_long);	
-	while(uio->uio_resid > 0 && error == 0)	{
-		ivy_rng_store(&rdrandval);
-		len =  uio->uio_resid;
-		if( len > len_ulong)
-			len = len_ulong;
-		error = uiomove(&rdrandval, len, uio);
+	len_ulong = sizeof(u_long);
+	buffer = malloc(RDRAND_MAX_BUFFER,RDRAND_BUFFER,M_NOWAIT);
+	if(buffer != NULL){
+		while(uio->uio_resid > 0 && error == 0)	{
+			offset = 0;
+			len = uio->uio_resid;
+			while(offset < RDRAND_MAX_BUFFER)	{
+				ivy_rng_store((u_long*)(buffer +offset));
+				offset+=len_ulong;
+			}
+			if(len > offset)
+				len = offset;
+			error = uiomove(buffer,offset,uio);
+		}
+		free(buffer,RDRAND_BUFFER);
+	}
+	else	{
+		while(uio->uio_resid > 0 && error == 0)	{
+			ivy_rng_store(&rdrandval);
+			len =  uio->uio_resid;
+			if( len > len_ulong)
+				len = len_ulong;
+			error = uiomove(&rdrandval, len, uio);
+		}
 	}
 	return (error);
 }
