@@ -38,20 +38,22 @@ __FBSDID("$FreeBSD: releng/11.1/sys/dev/null/null.c 274366 2014-11-11 04:48:09Z 
 #include <sys/disk.h>
 //#include <sys/bus.h>
 #include <sys/filio.h>
-
+#include <sys/libkern.h>
 #include <machine/bus.h>
 #include <machine/vmparam.h>
-
 
 #define RETRY_COUNT 10
 #define RDRAND_MAX_BUFFER 1024*1024
 
-//static MALLOC_DECLARE(RDRAND_BUFFER);
 static MALLOC_DEFINE(RDRAND_BUFFER,"rdrand_buffer","Buffer for rdrand data");
 
 /* For use with destroy_dev(9). */
 static struct cdev *rdrand_dev;
+static struct cdev *arc4rand_dev;
+
+
 static d_read_t rdrand_read;
+static d_read_t arc4rand_read;
 static d_ioctl_t rdrand_ioctl;
 
 
@@ -62,6 +64,15 @@ static struct cdevsw rdrand_cdevsw = {
 	.d_ioctl =	rdrand_ioctl,
 	.d_name	=	"rdrand",
 };
+
+static struct cdevsw arc4rand_cdevsw = {
+	.d_version = 	D_VERSION,
+	.d_read =	arc4rand_read,
+	.d_write =	(d_write_t*)nullop,
+	.d_ioctl =	rdrand_ioctl,
+	.d_name	=	"arc4rand",
+};
+
 
 /* ARGSUSED */
 
@@ -130,7 +141,7 @@ rdrand_read(struct cdev *dev __unused, struct uio *uio,int flags __unused)
 			}
 			if(len > offset)
 				len = offset;
-			error = uiomove(buffer,offset,uio);
+			error = uiomove(buffer,len,uio);
 		}
 		free(buffer,RDRAND_BUFFER);
 	}
@@ -148,20 +159,59 @@ rdrand_read(struct cdev *dev __unused, struct uio *uio,int flags __unused)
 
 /* ARGSUSED */
 static int
+arc4rand_read(struct cdev *dev __unused, struct uio *uio,int flags __unused)
+{
+	int len_ulong = 0;
+	unsigned char *buffer = NULL;
+	u_long rdrandval;
+	ssize_t len;
+	int error = 0;
+	len_ulong = sizeof(u_long);
+	buffer = malloc(RDRAND_MAX_BUFFER,RDRAND_BUFFER,M_NOWAIT);
+	if(buffer != NULL){
+		while(uio->uio_resid > 0 && error == 0)	{
+			arc4rand(buffer,RDRAND_MAX_BUFFER,0);
+			len = uio->uio_resid;
+			if(len > RDRAND_MAX_BUFFER)
+				len = RDRAND_MAX_BUFFER;
+			error = uiomove(buffer,len,uio);
+		}
+		free(buffer,RDRAND_BUFFER);
+	}
+	else	{
+		while(uio->uio_resid > 0 && error == 0)	{
+			rdrandval = arc4random();
+			len =  uio->uio_resid;
+			if( len > len_ulong)
+				len = len_ulong;
+			error = uiomove(&rdrandval, len, uio);
+		}
+	}
+	return (error);
+}
+
+/* ARGSUSED */
+static int
 devrdrand_modevent(module_t mod __unused, int type, void *data __unused)
 {
 	switch(type) {
 	case MOD_LOAD:
-		if (bootverbose)
+		if (bootverbose)	{
 			printf("rdrand: < Intel rdrand device>\n");
+			printf("arc4rand: < arc4rand device>\n");
+		}
 
 		rdrand_dev = make_dev_credf(MAKEDEV_ETERNAL_KLD, &rdrand_cdevsw,0,
 		    NULL, UID_ROOT, GID_WHEEL, 0666, "rdrand");
+		arc4rand_dev = make_dev_credf(MAKEDEV_ETERNAL_KLD, &arc4rand_cdevsw,0,
+		    NULL, UID_ROOT, GID_WHEEL, 0666, "arc4rand");
+
 		break;
 
 	case MOD_UNLOAD:
 
 		destroy_dev(rdrand_dev);
+		destroy_dev(arc4rand_dev);
 		break;
 
 	case MOD_SHUTDOWN:
