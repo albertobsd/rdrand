@@ -202,9 +202,9 @@ devrdrand_modevent(module_t mod __unused, int type, void *data __unused)
 		}
 
 		rdrand_dev = make_dev_credf(MAKEDEV_ETERNAL_KLD, &rdrand_cdevsw,0,
-		    NULL, UID_ROOT, GID_WHEEL, 0666, "rdrand");
+		    NULL, UID_ROOT, GID_WHEEL, 0644, "rdrand");
 		arc4rand_dev = make_dev_credf(MAKEDEV_ETERNAL_KLD, &arc4rand_cdevsw,0,
-		    NULL, UID_ROOT, GID_WHEEL, 0666, "arc4rand");
+		    NULL, UID_ROOT, GID_WHEEL, 0644, "arc4rand");
 
 		break;
 
